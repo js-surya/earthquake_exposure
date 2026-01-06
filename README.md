@@ -1,6 +1,6 @@
 # Earthquake Exposure Project
 
-This is my assignment for the Science Programming course.
+This assignment for the Science Programming course.
 The goal is to calculate seismic risk for major cities.
 
 ## Structure
