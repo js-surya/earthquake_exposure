@@ -10,7 +10,7 @@ def generate_interactive_map(cities_gdf, eq_gdf, exposure_df):
     # Create base map. Center it based on the cities
     center_lat = cities_gdf.geometry.y.mean()
     center_lon = cities_gdf.geometry.x.mean()
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=2,  tiles='CartoDB dark_matter')
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=2,  tiles='CartoDB positron') # Light Theme
     
     # Add Earthquakes
     for _, row in eq_gdf.iterrows():
@@ -43,7 +43,7 @@ def generate_interactive_map(cities_gdf, eq_gdf, exposure_df):
 
 def generate_interactive_dashboard(eq_gdf, exposure_df):
     """
-    Generates Plotly dashboard charts.
+    Generates Plotly dashboard charts using LIGHT THEME.
     """
     # 1. Depth vs Magnitude
     fig1 = px.scatter(
@@ -57,7 +57,7 @@ def generate_interactive_dashboard(eq_gdf, exposure_df):
     )
     if 'depth_km' in eq_gdf.columns:
         fig1.update_yaxes(autorange="reversed")
-    fig1.update_layout(template="plotly_dark")
+    fig1.update_layout(template="plotly_white") # Light Theme
 
     # 2. Risk vs Distance
     fig2 = px.scatter(
@@ -71,23 +71,31 @@ def generate_interactive_dashboard(eq_gdf, exposure_df):
         labels={'d_near': 'Dist to Quake (km)', 'exposure_score': 'Risk Score'},
         size_max=40
     )
-    fig2.update_layout(template="plotly_dark")
+    fig2.update_layout(template="plotly_white") # Light Theme
     
     return fig1, fig2
 
 def generate_plotly_map(cities_gdf, eq_gdf, exposure_df):
     """
-    Generates a Plotly Mapbox map in DARK MODE.
+    Generates a Plotly Mapbox map in LIGHT MODE ('carto-positron').
     """
     # Prepare Cities
     cities_df = cities_gdf.copy()
+    
+    # Merge cities with their scores to ensure alignment
+    cities_df = cities_df.merge(
+        exposure_df[['city_name', 'exposure_score']], 
+        left_on='NAME', 
+        right_on='city_name', 
+        how='inner'
+    )
+    
     cities_df['lat'] = cities_df.geometry.y
     cities_df['lon'] = cities_df.geometry.x
-    cities_df['score'] = exposure_df['exposure_score'].values
     
     cities_df['hover'] = (
         "<b>" + cities_df['NAME'] + "</b><br>" +
-        "Risk: " + cities_df['score'].round(2).astype(str)
+        "Risk: " + cities_df['exposure_score'].round(2).astype(str)
     )
 
     # Prepare Quakes
@@ -101,12 +109,12 @@ def generate_plotly_map(cities_gdf, eq_gdf, exposure_df):
 
     fig = go.Figure()
 
-    # Earthquakes Layer (Red/Orange dots)
+    # Earthquakes Layer (Orange dots for visibility on light map)
     fig.add_trace(go.Scattermapbox(
         lat=eq_df['lat'], lon=eq_df['lon'],
         mode='markers',
         marker=go.scattermapbox.Marker(
-            size=6, color='#FF5733', opacity=0.7
+            size=7, color='#FF8C00', opacity=0.7 # Darker orange for contrast
         ),
         text=eq_df['hover'], hoverinfo='text', name='Earthquakes'
     ))
@@ -117,21 +125,21 @@ def generate_plotly_map(cities_gdf, eq_gdf, exposure_df):
         mode='markers',
         marker=go.scattermapbox.Marker(
             size=10, 
-            color=cities_df['score'],
+            color=cities_df['exposure_score'],
             colorscale='Bluered',
             showscale=True,
-            colorbar=dict(title="Risk", x=0.95),
+            colorbar=dict(title="Risk", x=0.98, bgcolor='rgba(255,255,255,0.8)'), # White BG for legend
         ),
         text=cities_df['hover'], hoverinfo='text', name='Cities'
     ))
 
     fig.update_layout(
-        title="Global Seismic Exposure (Dark Mode)",
-        mapbox_style="carto-darkmatter", # DARK MODE RESTORED
+        title="Global Seismic Exposure (Light Mode)",
+        mapbox_style="carto-positron", # LIGHT THEME
         mapbox=dict(center=dict(lat=20, lon=0), zoom=1.1),
         margin={"r":0,"t":40,"l":0,"b":0},
         height=700,
-        paper_bgcolor='black',
-        font=dict(color='white')
+        paper_bgcolor='white',
+        font=dict(color='black')
     )
     return fig
