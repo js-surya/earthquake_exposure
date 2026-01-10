@@ -10,15 +10,15 @@
 
 ## 1. Problem Statement
 
-Natural disasters, particularly earthquakes, pose significant risks to urban populations worldwide. Identifying which cities have the highest seismic exposure is crucial for disaster preparedness, urban planning, and resource allocation. However, manually assessing risk for thousands of cities is computationally expensive and inefficient.
+Natural disasters, particularly earthquakes, pose significant risks to urban populations across Asia. Identifying which cities have the highest seismic exposure is crucial for disaster preparedness. However, assessing risk for thousands of cities manually is inefficient.
 
-**Research Question:** Which major cities (population > 100,000) are most exposed to recent seismic activity, and how can we efficiently quantify this risk using spatial algorithms?
+**Research Question:** Which major Asian cities (population > 100,000) have been most exposed to seismic activity in the last 90 days, and how can we quantify this risk?
 
-Our objective is to develop an automated system that:
-1. Retrieves real-time earthquake data
-2. Performs efficient spatial proximity analysis
-3. Calculates a composite risk score for each city
-4. Provides interactive visualizations for decision-makers
+Our objective is to develop a system that:
+1. Retrieves real-time earthquake data for the Asian region
+2. Performs spatial proximity analysis using KD-Trees
+3. Calculates a risk score for each city
+4. Visualizes the risk interactively
 
 ---
 
@@ -26,37 +26,23 @@ Our objective is to develop an automated system that:
 
 ### 2.1 Earthquake Data: USGS API
 
-We use the **United States Geological Survey (USGS) Earthquake Catalog** API to obtain real-time seismic data.
+We use the **USGS Earthquake Catalog** API to obtain seismic data.
 
-- **API Endpoint:** `https://earthquake.usgs.gov/fdsnws/event/1/query`
-- **Format:** GeoJSON
-- **Temporal Coverage:** Last 30 days (configurable)
-- **Magnitude Filter:** ≥ 5.0 on the Richter scale (to focus on significant events)
+- **Region:** Asia (Lat: -10° to 80°, Lon: 25° to 180°)
+- **Temporal Coverage:** Last 90 days
+- **Magnitude Filter:** ≥ 5.0
 - **Coordinate System:** WGS84 (EPSG:4326)
 
-**Key Attributes Extracted:**
-- Geographic coordinates (latitude, longitude)
-- Magnitude (`mag`)
-- Depth (`depth_km`) - extracted from 3D point geometry (z-coordinate)
-- Location description (`place`)
-- Timestamp
+**Key Attributes:** Coordinates, Magnitude (`mag`), Depth (`depth_km`), Place, Timestamp.
 
 ### 2.2 City Data: Natural Earth
 
-We use the **Natural Earth Populated Places** dataset to obtain city locations.
+We use the **Natural Earth Populated Places** dataset for city locations.
 
-- **Source:** Natural Earth 1:10m Cultural Vectors
-- **URL:** `https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_populated_places_simple.geojson`
-- **Population Filter:** Cities with `pop_max > 100,000`
+- **Filter:** Cities in Asia with population > 100,000
 - **Coordinate System:** WGS84 (EPSG:4326)
 
-**Key Attributes:**
-- City name (`NAME`)
-- Population (`POP_MAX`)
-- Country (`ADM0NAME`)
-- Point geometry (latitude, longitude)
-
-**Rationale for Filtering:** Focusing on cities with populations exceeding 100,000 ensures our analysis targets urban areas where seismic risk has the greatest potential impact.
+**Key Attributes:** Name, Population (`POP_MAX`), Country (`ADM0NAME`), Coordinates.
 
 ---
 
@@ -65,165 +51,69 @@ We use the **Natural Earth Populated Places** dataset to obtain city locations.
 ### 3.1 Data Acquisition and Preprocessing
 
 **Step 1: Data Fetching**
-- Earthquake data is fetched via HTTP GET request to USGS API with query parameters (time range, minimum magnitude)
-- City data is downloaded once and cached locally to minimize network overhead
+- Fetch earthquake data from USGS with specific geographic bounds for Asia.
+- Download and cache city data, filtering for Asian countries only.
 
-**Step 2: Data Cleaning**
-```python
-def cleanup_gdf(gdf):
-    # Remove invalid geometries
-    gdf = gdf.dropna(subset=['geometry'])
-    # Extract depth from 3D point geometry (z-coordinate)
-    gdf['depth_km'] = gdf.geometry.apply(lambda p: p.z if p.has_z else 0)
-    return gdf
-```
+**Step 2: Cleaning & Projection**
+- Drop invalid geometries.
+- Reproject everything to **EPSG:4087 (World Equidistant Cylindrical)** to measure distances in meters.
 
-**Step 3: Coordinate Reference System (CRS) Transformation**
+### 3.2 Spatial Indexing
 
-Since WGS84 uses degrees and we need metric distances, we reproject both datasets to **EPSG:4087 (World Equidistant Cylindrical projection)**:
+We use a **KD-Tree** (K-Dimensional Tree) for efficient spatial querying.
+- **Why?** Finding neighbors is O(log n) instead of O(n).
+- **Tool:** `scipy.spatial.cKDTree`
 
-```python
-def fix_crs_to_metric(gdf):
-    if gdf.crs != "EPSG:4087":
-        return gdf.to_crs(epsg=4087)
-    return gdf
-```
+### 3.3 Risk Metrics
 
-This transformation allows us to compute accurate distances in meters rather than angular degrees.
+For each city, we calculate:
+1. **n_quakes:** Count of quakes within **500 km** radius
+2. **m_avg:** Average magnitude of nearby quakes
+3. **m_max:** Maximum magnitude
+4. **d_near:** Distance to nearest quake (km)
 
-### 3.2 Spatial Indexing with KD-Tree
+*Note: We increased the radius to 500km because large earthquakes can have impacts over vast distances.*
 
-To efficiently query "which earthquakes are near which cities," we implement a **K-Dimensional Tree (KD-Tree)** spatial index using `scipy.spatial.cKDTree`.
+### 3.4 Risk Score Calculation
 
-**Why KD-Tree?**
-- **Time Complexity:** O(log n) for nearest neighbor queries vs. O(n) for brute-force
-- **Scalability:** Efficiently handles thousands of spatial points
-- **Range Queries:** `query_ball_point()` retrieves all neighbors within a radius in O(log n + k) time
-
-**Implementation:**
-```python
-class EarthquakeIndex:
-    def __init__(self, eq_gdf):
-        self.coords = np.array(list(zip(eq_gdf.geometry.x, eq_gdf.geometry.y)))
-        self.magnitudes = eq_gdf['mag'].values
-        self.tree = cKDTree(self.coords)
-    
-    def query_radius(self, x, y, radius_m):
-        return self.tree.query_ball_point([x, y], r=radius_m)
-    
-    def get_nearest_dist(self, x, y):
-        dist, idx = self.tree.query([x, y], k=1)
-        return dist
-```
-
-### 3.3 Risk Metrics Calculation
-
-For each city, we compute the following raw metrics:
-
-1. **n_quakes:** Number of earthquakes within 50 km radius
-2. **m_avg:** Average magnitude of nearby earthquakes
-3. **m_max:** Maximum magnitude of nearby earthquakes
-4. **d_near:** Distance to the nearest earthquake (km)
-
-**Proximity Threshold:** We define a "danger zone" of **50 km** based on typical seismic wave propagation models where ground motion intensity significantly decreases beyond this distance.
-
-### 3.4 Normalization
-
-To combine metrics with different scales, we apply **min-max normalization**:
+We normalize all metrics to 0-1 range and calculate a weighted score:
 
 $$
-X_{norm} = \frac{X - X_{min}}{X_{max} - X_{min}}
+\text{Risk Score} = 0.3 \times n_{quakes} + 0.4 \times m_{max} + 0.3 \times d_{score}
 $$
 
-This transforms all metrics to the range [0, 1].
-
-**Special Case - Distance Inversion:**  
-Since closer distances indicate higher risk, we invert the distance metric:
-
-$$
-d_{score} = \frac{1}{d_{near} + 0.1}
-$$
-
-The epsilon (0.1) prevents division by zero. This d_score is then normalized like other metrics.
-
-### 3.5 Composite Risk Score
-
-We compute a weighted composite score using domain knowledge:
-
-$$
-\text{Risk Score} = 0.3 \times n_{quakes\_norm} + 0.4 \times m_{max\_norm} + 0.3 \times d_{score\_norm}
-$$
-
-**Weight Justification:**
-- **Maximum Magnitude (40%):** The strongest earthquake poses the greatest destruction potential (Gutenberg-Richter law)
-- **Proximity (30%):** Closer earthquakes have more intense ground shaking
-- **Frequency (30%):** Multiple events indicate an active seismic zone
-
-The final score ranges from 0 (low risk) to 1 (high risk).
+Where $d_{score}$ is the inverse distance (closer = higher risk).
 
 ---
 
-## 4. Implementation
+## 4. Implementation Details
 
-### 4.1 Technology Stack
-- **Python 3.12** - Core programming language
-- **GeoPandas** - Spatial data manipulation
-- **Scipy** - KD-Tree spatial indexing
-- **Pandas & NumPy** - Numerical computations
-- **Plotly & Folium** - Interactive visualizations
-- **FastAPI** - REST API for data access
-
-### 4.2 Workflow Pipeline
-
-```
-1. Fetch earthquake data (USGS API) → GeoDataFrame
-2. Fetch city data (Natural Earth) → GeoDataFrame
-3. Clean geometries and extract depth
-4. Transform CRS to EPSG:4087 (metric)
-5. Build KD-Tree spatial index from earthquakes
-6. For each city:
-   a. Query nearest earthquake distance
-   b. Query all earthquakes within 50km
-   c. Compute metrics (n_quakes, m_avg, m_max)
-7. Normalize all metrics
-8. Calculate composite risk score
-9. Rank cities by risk score
-10. Generate visualizations
-```
+- **Language:** Python
+- **Libraries:** GeoPandas, Pandas, Scipy, Plotly
+- **Output:** Interactive HTML map (`asia_seismic_risk_map.html`)
 
 ---
 
-## 5. Results
+## 5. Results (Sample)
 
-### 5.1 Sample Output
+Based on analysis of the last 90 days:
 
-Based on recent seismic activity (30-day window, magnitude ≥ 5.0), our analysis identified high-risk cities. Example results:
+| City | Country | Population | n_quakes | m_max | Risk Score |
+|------|---------|------------|----------|-------|------------|
+| Kushiro | Japan | 183,000 | 62 | 7.6 | 0.77 |
+| Hachinohe | Japan | 239,000 | 50 | 7.6 | 0.70 |
+| Obihiro | Japan | 173,000 | 55 | 7.6 | 0.69 |
+| Taitung | Taiwan | 109,000 | 8 | 6.6 | 0.68 |
+| Tomakomai | Japan | 174,000 | 54 | 7.6 | 0.68 |
 
-| City | Country | Population | n_quakes | m_max | d_near (km) | Risk Score |
-|------|---------|------------|----------|-------|-------------|------------|
-| Tokyo | Japan | 37,400,068 | 12 | 7.2 | 45.3 | 0.89 |
-| Jakarta | Indonesia | 10,770,487 | 8 | 6.8 | 67.2 | 0.78 |
-| Lima | Peru | 9,751,717 | 5 | 6.5 | 89.4 | 0.71 |
-| Manila | Philippines | 13,923,452 | 6 | 6.3 | 102.1 | 0.68 |
-| Santiago | Chile | 6,680,000 | 4 | 6.1 | 125.7 | 0.62 |
+### Observations
+- **Japan** dominates the high-risk list due to frequent strong activity.
+- **Taiwan** also shows significant risk exposure.
+- **Visual Pattern:** The interactive map clearly visualizes the "Ring of Fire" affecting eastern Asia.
 
-*(Note: Actual values vary depending on real-time earthquake data)*
-
-### 5.2 Spatial Distribution
-
-Our interactive map visualization reveals:
-- **Pacific Ring of Fire** cities consistently show elevated risk scores
-- **Proximity matters:** Cities within 100 km of magnitude 6+ events score highest
-- **Frequency clustering:** Southeast Asian cities experience more frequent smaller earthquakes
-
-### 5.3 Performance Metrics
-
-- **Cities analyzed:** ~2,300 (population > 100,000)
-- **Average query time per city:** ~0.8 ms (KD-Tree optimized)
-- **Total computation time:** ~2.5 seconds
-- **API response size:** ~500 KB (GeoJSON format)
-
-**Efficiency Gain:** Without KD-Tree indexing, brute-force distance calculations would take ~180 seconds (72× slower).
+### Performance
+- **Analyzed:** ~1,400 cities and ~260 earthquakes
+- **Speed:** Full analysis runs in < 2 seconds thanks to KD-Tree.
 
 ---
 

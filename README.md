@@ -1,7 +1,9 @@
-# Earthquake Exposure Analysis
+# Earthquake Exposure Analysis - Asia
 
 **Authors:** Surya Jamuna Rani Subramanian & Govindharajulu Ramachandran  
 **Course:** Scientific Programming for Geospatial Sciences (Assignment 1)
+
+This project analyzes seismic risk for cities in the Asian region over the last 90 days. It downloads live earthquake data from USGS, combines it with populated places from Natural Earth, and calculates a risk exposure score for each city.
 
 ## Structure
 - `src/`: Python source code
