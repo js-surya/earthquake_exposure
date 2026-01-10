@@ -5,14 +5,19 @@ import os
 
 CACHE_FOLDER = "../data"
 
-def get_earthquake_data(days_back=30, min_mag=5.0):
-    """Get earthquake data from USGS"""
+def get_earthquake_data(days_back=90, min_mag=5.0):
+    """Get earthquake data from USGS (Asia region only)"""
     url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
     
+    # Asia bounding box: lat -10 to 80, lon 25 to 180
     params = {
         "format": "geojson",
         "starttime": (pd.Timestamp.now() - pd.Timedelta(days=days_back)).isoformat(),
-        "minmagnitude": min_mag
+        "minmagnitude": min_mag,
+        "minlatitude": -10,
+        "maxlatitude": 80,
+        "minlongitude": 25,
+        "maxlongitude": 180
     }
     
     try:
