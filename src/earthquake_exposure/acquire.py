@@ -81,3 +81,30 @@ def get_cities_data():
     except Exception as e:
         print("Download failed:", e)
         return gpd.GeoDataFrame()
+
+def get_country_boundaries():
+    """Get country polygon boundaries (Asia only)"""
+    try:
+        # Load the built-in low resolution countries dataset
+        world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+        
+        asian_countries = [
+            'Afghanistan', 'Armenia', 'Azerbaijan', 'Bahrain', 'Bangladesh', 
+            'Bhutan', 'Brunei', 'Cambodia', 'China', 'Georgia', 'India', 
+            'Indonesia', 'Iran', 'Iraq', 'Israel', 'Japan', 'Jordan', 'Kazakhstan',
+            'Kuwait', 'Kyrgyzstan', 'Laos', 'Lebanon', 'Malaysia', 'Maldives',
+            'Mongolia', 'Myanmar', 'Nepal', 'North Korea', 'Oman', 'Pakistan',
+            'Palestine', 'Philippines', 'Qatar', 'Saudi Arabia', 'Singapore',
+            'South Korea', 'Sri Lanka', 'Syria', 'Taiwan', 'Tajikistan', 'Thailand',
+            'Timor-Leste', 'Turkey', 'Turkmenistan', 'United Arab Emirates',
+            'Uzbekistan', 'Vietnam', 'Yemen', 'Russia'
+        ]
+        
+        asia = world[world['name'].isin(asian_countries)].copy()
+        
+        # If dataset uses different names (e.g. United States of America vs United States)
+        # We might miss some, but the list covers standard NE names.
+        return asia
+    except Exception as e:
+        print("Could not load boundaries:", e)
+        return gpd.GeoDataFrame()
