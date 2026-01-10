@@ -1,6 +1,7 @@
 import plotly.express as px
 import plotly.graph_objects as go
 import folium
+import pandas as pd
 
 def generate_interactive_map(cities_gdf, eq_gdf, exposure_df):
     """Generate Folium map with cities and earthquakes"""
@@ -65,10 +66,11 @@ def generate_interactive_dashboard(eq_gdf, exposure_df):
     return fig1, fig2
 
 def generate_plotly_map(cities_gdf, eq_gdf, exposure_df):
-    """Generate Plotly mapbox visualization"""
+    """Generate professional interactive map with rich tooltips and layers"""
+    # Prepare Cities Data
     cities_df = cities_gdf.copy()
     cities_df = cities_df.merge(
-        exposure_df[['city_name', 'exposure_score']], 
+        exposure_df[['city_name', 'exposure_score', 'n_quakes', 'm_max', 'd_near']], 
         left_on='NAME', 
         right_on='city_name', 
         how='inner'
@@ -77,50 +79,113 @@ def generate_plotly_map(cities_gdf, eq_gdf, exposure_df):
     cities_df['lat'] = cities_df.geometry.y
     cities_df['lon'] = cities_df.geometry.x
     
-    cities_df['hover'] = (
-        "<b>" + cities_df['NAME'] + "</b><br>" +
-        "Risk: " + cities_df['exposure_score'].round(2).astype(str)
+    # Create rich hover text for cities
+    # Handle potentially different column names for country
+    country_col = 'ADM0NAME' if 'ADM0NAME' in cities_df.columns else 'adm0name'
+    country_name = cities_df[country_col] if country_col in cities_df.columns else "Unknown"
+    
+    cities_df['hover_text'] = (
+        "<b>" + cities_df['NAME'] + "</b> (" + country_name + ")<br>" +
+        "Population: " + cities_df['POP_MAX'].apply(lambda x: f"{x:,.0f}") + "<br>" +
+        "<b>Risk Score: " + cities_df['exposure_score'].round(2).astype(str) + "</b><br>" +
+        "Nearby Quakes: " + cities_df['n_quakes'].astype(str) + "<br>" +
+        "Max Mag Nearby: " + cities_df['m_max'].round(1).astype(str) + "<br>" +
+        "Nearest Quake: " + cities_df['d_near'].round(1).astype(str) + " km"
     )
 
+    # Prepare Earthquake Data
     eq_df = eq_gdf.copy()
     eq_df['lat'] = eq_df.geometry.y
     eq_df['lon'] = eq_df.geometry.x
-    eq_df['hover'] = (
-        "Mag " + eq_df['mag'].astype(str) + "<br>" +
-        eq_df['place']
+    eq_df['date'] = pd.to_datetime(eq_df['time'], unit='ms').dt.strftime('%Y-%m-%d')
+    
+    # Create rich hover text for earthquakes
+    eq_df['hover_text'] = (
+        "<b>Magnitude " + eq_df['mag'].astype(str) + "</b><br>" +
+        eq_df['place'] + "<br>" +
+        "Date: " + eq_df['date'] + "<br>" +
+        "Depth: " + eq_df['depth_km'].astype(str) + " km"
     )
 
     fig = go.Figure()
 
+    # Layer 1: Earthquakes (sized by magnitude)
     fig.add_trace(go.Scattermapbox(
-        lat=eq_df['lat'], lon=eq_df['lon'],
+        lat=eq_df['lat'],
+        lon=eq_df['lon'],
         mode='markers',
         marker=go.scattermapbox.Marker(
-            size=7, color='#FF8C00', opacity=0.7
+            size=eq_df['mag'] ** 2.5 / 2,  # Exponential sizing for dramatic effect
+            color=eq_df['mag'],
+            colorscale='YlOrRd',
+            cmin=5.0,
+            cmax=8.0,
+            opacity=0.7,
+            showscale=True,
+            colorbar=dict(
+                title="Magnitude",
+                x=0.02,
+                y=0.5,
+                len=0.5,
+                bgcolor='rgba(255,255,255,0.8)'
+            )
         ),
-        text=eq_df['hover'], hoverinfo='text', name='Earthquakes'
+        text=eq_df['hover_text'],
+        hoverinfo='text',
+        name='Earthquakes'
     ))
 
+    # Layer 2: Cities (colored by risk score)
     fig.add_trace(go.Scattermapbox(
-        lat=cities_df['lat'], lon=cities_df['lon'],
+        lat=cities_df['lat'],
+        lon=cities_df['lon'],
         mode='markers',
         marker=go.scattermapbox.Marker(
             size=10, 
             color=cities_df['exposure_score'],
-            colorscale='Bluered',
+            colorscale='Viridis_r',  # Reversed Viridis means darker = safer, brighter = risky
             showscale=True,
-            colorbar=dict(title="Risk", x=0.98, bgcolor='rgba(255,255,255,0.8)'),
+            cmin=0,
+            cmax=1,
+            colorbar=dict(
+                title="Risk Score",
+                x=0.98,
+                len=0.5,
+                bgcolor='rgba(255,255,255,0.8)'
+            )
         ),
-        text=cities_df['hover'], hoverinfo='text', name='Cities'
+        text=cities_df['hover_text'],
+        hoverinfo='text',
+        name='Cities at Risk'
     ))
 
+    # Update layout for maximum interactivity and aesthetics
     fig.update_layout(
-        title="Global Seismic Exposure",
+        title={
+            'text': "<b>Asian Cities Seismic Risk Analysis</b><br><sup>Exposure to Earthquakes > Mag 5.0 (Last 90 Days)</sup>",
+            'y':0.95,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'
+        },
         mapbox_style="carto-positron",
-        mapbox=dict(center=dict(lat=20, lon=0), zoom=1.1),
-        margin={"r":0,"t":40,"l":0,"b":0},
-        height=700,
+        mapbox=dict(
+            center=dict(lat=30, lon=100),
+            zoom=2.5
+        ),
+        margin={"r":0,"t":50,"l":0,"b":0},
+        height=800,
         paper_bgcolor='white',
-        font=dict(color='black')
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="Black",
+            borderwidth=1
+        ),
+        font=dict(family="Arial", size=12, color="black")
     )
+    
     return fig
