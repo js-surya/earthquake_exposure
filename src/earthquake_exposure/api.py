@@ -6,22 +6,17 @@ app = FastAPI()
 
 @app.get("/")
 def home():
-    """
-    Just a simple welcome message.
-    """
+    """Welcome message"""
     return {"message": "Welcome to the Earthquake Exposure API!"}
 
 @app.get("/latest_quakes")
 def get_latest(min_mag: float = 5.0):
-    """
-    Fetches the latest quakes and returns a simplified list.
-    """
+    """Get latest earthquakes"""
     gdf = get_earthquake_data(days_back=7, min_mag=min_mag)
     
     if gdf.empty:
         return {"count": 0, "quakes": []}
         
-    # Convert to a simple dictionary for JSON
     results = []
     for _, row in gdf.iterrows():
         results.append({
@@ -35,5 +30,5 @@ def get_latest(min_mag: float = 5.0):
     return {"count": len(results), "quakes": results}
 
 if __name__ == "__main__":
-    # This runs the server if I execute this file directly
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
