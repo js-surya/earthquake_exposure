@@ -76,6 +76,9 @@ def generate_plotly_map(cities_gdf, eq_gdf, exposure_df, boundaries_gdf=None):
         how='inner'
     )
     
+    # Filter: Show only cities with non-zero risk to reduce clutter
+    cities_df = cities_df[cities_df['exposure_score'] > 0].copy()
+    
     cities_df['lat'] = cities_df.geometry.y
     cities_df['lon'] = cities_df.geometry.x
     
